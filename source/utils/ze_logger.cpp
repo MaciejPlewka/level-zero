@@ -10,6 +10,7 @@
 #include "ze_util.h"
 
 #include <cerrno>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -54,6 +55,7 @@ static bool winEnableAnsiColor(int fd) {
 
 #else
 #include <unistd.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pwd.h>
@@ -69,6 +71,102 @@ namespace loader {
 // ANSI color codes — only emitted when writing to a tty.
 // ---------------------------------------------------------------------------
 namespace {
+
+std::string baseNameFromPath(const std::string &path) {
+    const std::size_t pos = path.find_last_of("\\/");
+    if (pos == std::string::npos) {
+        return path;
+    }
+    return path.substr(pos + 1);
+}
+
+std::string sanitizeFileNameComponent(std::string value) {
+    if (value.empty()) {
+        return "process";
+    }
+    for (char &ch : value) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (uch < 0x20 || ch == '<' || ch == '>' || ch == ':' || ch == '"' ||
+            ch == '/' || ch == '\\' || ch == '|' || ch == '?' || ch == '*') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
+std::string currentProcessName() {
+#ifdef _WIN32
+    char module_path[MAX_PATH] = {};
+    const DWORD len = GetModuleFileNameA(nullptr, module_path, MAX_PATH);
+    if (len != 0) {
+        return sanitizeFileNameComponent(baseNameFromPath(std::string(module_path, len)));
+    }
+#else
+    char module_path[PATH_MAX] = {};
+    const ssize_t len = readlink("/proc/self/exe", module_path, sizeof(module_path) - 1);
+    if (len > 0) {
+        module_path[len] = '\0';
+        return sanitizeFileNameComponent(baseNameFromPath(module_path));
+    }
+#endif
+    return "process";
+}
+
+std::string startupTimestampForFileName() {
+    const auto now = std::chrono::system_clock::now();
+    const auto now_t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &now_t);
+#else
+    localtime_r(&now_t, &tm_buf);
+#endif
+
+    char timestamp[32] = {};
+    std::strftime(timestamp, sizeof(timestamp), "%Y%m%d-%H%M%S", &tm_buf);
+    return timestamp;
+}
+
+std::string expandLogFilePattern(const std::string &pattern) {
+    if (pattern.empty()) {
+        return pattern;
+    }
+
+    const std::string pid = std::to_string(static_cast<long long>(GET_PID()));
+    const std::string process_name = currentProcessName();
+    const std::string timestamp = startupTimestampForFileName();
+
+    std::string expanded;
+    expanded.reserve(pattern.size() + pid.size() + process_name.size());
+
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        if (pattern[i] == '%' && i + 1 < pattern.size()) {
+            switch (pattern[i + 1]) {
+                case '%':
+                    expanded.push_back('%');
+                    ++i;
+                    continue;
+                case 'P':
+                    expanded += pid;
+                    ++i;
+                    continue;
+                case 'N':
+                    expanded += process_name;
+                    ++i;
+                    continue;
+                case 'T':
+                    expanded += timestamp;
+                    ++i;
+                    continue;
+                default:
+                    break;
+            }
+        }
+        expanded.push_back(pattern[i]);
+    }
+
+    return expanded;
+}
 
 struct AnsiColor {
     static const char *reset()    { return "\033[0m";  }
@@ -575,10 +673,20 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
         loader_file = LOADER_LOG_FILE;
     }
 
+    auto loader_file_pattern = getenv_string("ZEL_LOADER_LOG_FILE_PATTERN");
+    if (loader_file_pattern.empty()) {
+        loader_file_pattern = loader_file;
+    }
+
+    std::string resolved_loader_file = expandLogFilePattern(loader_file_pattern);
+    if (resolved_loader_file.empty()) {
+        resolved_loader_file = loader_file;
+    }
+
 #ifdef _WIN32
-    std::string full_log_file_path = log_directory + "\\" + loader_file;
+    std::string full_log_file_path = log_directory + "\\" + resolved_loader_file;
 #else
-    std::string full_log_file_path = log_directory + "/" + loader_file;
+    std::string full_log_file_path = log_directory + "/" + resolved_loader_file;
 #endif
 
     const uint32_t logging_mode = getenv_tomode("ZEL_ENABLE_LOADER_LOGGING");
@@ -679,6 +787,8 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
         cfg += "\n  ZEL_LOADER_LOGGING_LEVEL         : " + log_level;
         cfg += "\n  ZEL_LOADER_LOG_DIR               : " + log_directory;
         cfg += "\n  ZEL_LOADER_LOG_FILE              : " + loader_file;
+        cfg += "\n  ZEL_LOADER_LOG_FILE_PATTERN      : " + loader_file_pattern;
+        cfg += "\n  Resolved log filename            : " + resolved_loader_file;
         cfg += "\n  ZEL_LOADER_LOG_PATTERN           : " + log_pattern;
         cfg += "\n  Output                           : " + output_dest;
         logger->info(cfg);
