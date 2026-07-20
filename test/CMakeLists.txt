@@ -9,6 +9,11 @@ add_executable(
   loader_tracing_layer.cpp
 )
 
+# The registry fallback for loader environment settings is a Windows-only feature.
+if(WIN32)
+  target_sources(tests PRIVATE getenv_registry_unit_tests.cpp)
+endif()
+
 # Only include driver_ordering_unit_tests and driver_teardown_unit_tests for static builds or non-Windows platforms
 # as they require internal loader symbols that are not exported in Windows DLLs
 if(BUILD_STATIC OR NOT WIN32)
@@ -118,6 +123,11 @@ endif()
 
 add_test(NAME tests_api COMMAND tests --gtest_filter=*GivenLevelZeroLoaderPresentWhenCallingzeGetLoaderVersionsAPIThenValidVersionIsReturned*)
 set_property(TEST tests_api PROPERTY ENVIRONMENT "ZE_ENABLE_LOADER_DEBUG_TRACE=1;ZE_ENABLE_NULL_DRIVER=1")
+
+# Windows-only: registry fallback for loader environment settings.
+if(WIN32)
+  add_test(NAME tests_getenv_registry_fallback COMMAND tests --gtest_filter=*GetenvRegistryFallbackTest*)
+endif()
 
 # LoaderVersionAPI Tests
 add_test(NAME tests_loader_version_after_init COMMAND tests --gtest_filter=*LoaderVersionAPI*GivenLoaderWhenCallingzelGetLoaderVersionAfterInitThenValidVersionIsReturned*)
