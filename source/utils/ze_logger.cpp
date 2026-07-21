@@ -142,10 +142,6 @@ std::string expandLogFilePattern(const std::string &pattern) {
     for (std::size_t i = 0; i < pattern.size(); ++i) {
         if (pattern[i] == '%' && i + 1 < pattern.size()) {
             switch (pattern[i + 1]) {
-                case '%':
-                    expanded.push_back('%');
-                    ++i;
-                    continue;
                 case 'P':
                     expanded += pid;
                     ++i;
@@ -673,12 +669,9 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
         loader_file = LOADER_LOG_FILE;
     }
 
-    auto loader_file_pattern = getenv_string("ZEL_LOADER_LOG_FILE_PATTERN");
-    if (loader_file_pattern.empty()) {
-        loader_file_pattern = loader_file;
-    }
-
-    std::string resolved_loader_file = expandLogFilePattern(loader_file_pattern);
+    // Expand filename pattern tokens (%P, %N, %T, %%) within ZEL_LOADER_LOG_FILE.
+    // A filename without tokens is returned unchanged, preserving existing behaviour.
+    std::string resolved_loader_file = expandLogFilePattern(loader_file);
     if (resolved_loader_file.empty()) {
         resolved_loader_file = loader_file;
     }
@@ -787,7 +780,6 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
         cfg += "\n  ZEL_LOADER_LOGGING_LEVEL         : " + log_level;
         cfg += "\n  ZEL_LOADER_LOG_DIR               : " + log_directory;
         cfg += "\n  ZEL_LOADER_LOG_FILE              : " + loader_file;
-        cfg += "\n  ZEL_LOADER_LOG_FILE_PATTERN      : " + loader_file_pattern;
         cfg += "\n  Resolved log filename            : " + resolved_loader_file;
         cfg += "\n  ZEL_LOADER_LOG_PATTERN           : " + log_pattern;
         cfg += "\n  Output                           : " + output_dest;
