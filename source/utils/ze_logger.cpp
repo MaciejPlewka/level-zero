@@ -72,28 +72,6 @@ namespace loader {
 // ---------------------------------------------------------------------------
 namespace {
 
-std::string baseNameFromPath(const std::string &path) {
-    const std::size_t pos = path.find_last_of("\\/");
-    if (pos == std::string::npos) {
-        return path;
-    }
-    return path.substr(pos + 1);
-}
-
-std::string sanitizeFileNameComponent(std::string value) {
-    if (value.empty()) {
-        return "process";
-    }
-    for (char &ch : value) {
-        const unsigned char uch = static_cast<unsigned char>(ch);
-        if (uch < 0x20 || ch == '<' || ch == '>' || ch == ':' || ch == '"' ||
-            ch == '/' || ch == '\\' || ch == '|' || ch == '?' || ch == '*') {
-            ch = '_';
-        }
-    }
-    return value;
-}
-
 std::string currentProcessName() {
 #ifdef _WIN32
     char module_path[MAX_PATH] = {};
@@ -127,8 +105,39 @@ std::string startupTimestampForFileName() {
     return timestamp;
 }
 
+} // namespace (internal process-runtime helpers)
+
+// The filename-pattern helpers below are defined at namespace scope (and
+// declared in ze_logger.h) so unit tests can exercise them directly. They are
+// pure string transforms except that expandLogFilePattern() reads the process
+// pid/name/startup-time to fill the %P/%N/%T tokens.
+std::string baseNameFromPath(const std::string &path) {
+    const std::size_t pos = path.find_last_of("\\/");
+    if (pos == std::string::npos) {
+        return path;
+    }
+    return path.substr(pos + 1);
+}
+
+std::string sanitizeFileNameComponent(std::string value) {
+    if (value.empty()) {
+        return "process";
+    }
+    for (char &ch : value) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (uch < 0x20 || ch == '<' || ch == '>' || ch == ':' || ch == '"' ||
+            ch == '/' || ch == '\\' || ch == '|' || ch == '?' || ch == '*') {
+            ch = '_';
+        }
+    }
+    return value;
+}
+
 std::string expandLogFilePattern(const std::string &pattern) {
-    if (pattern.empty()) {
+    // Fast path: a filename without any token marker (e.g. the default
+    // "ze_loader.log") is used as-is, avoiding the pid/process-name/timestamp
+    // lookups and their syscalls.
+    if (pattern.find('%') == std::string::npos) {
         return pattern;
     }
 
@@ -142,6 +151,10 @@ std::string expandLogFilePattern(const std::string &pattern) {
     for (std::size_t i = 0; i < pattern.size(); ++i) {
         if (pattern[i] == '%' && i + 1 < pattern.size()) {
             switch (pattern[i + 1]) {
+                case '%':
+                    expanded.push_back('%');
+                    ++i;
+                    continue;
                 case 'P':
                     expanded += pid;
                     ++i;
@@ -163,6 +176,8 @@ std::string expandLogFilePattern(const std::string &pattern) {
 
     return expanded;
 }
+
+namespace {
 
 struct AnsiColor {
     static const char *reset()    { return "\033[0m";  }

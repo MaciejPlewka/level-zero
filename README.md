@@ -97,8 +97,9 @@ Supported filename pattern tokens:
 - `%P` — process id
 - `%N` — process executable base name
 - `%T` — logger startup timestamp formatted as `YYYYMMDD-HHMMSS`
+- `%%` — literal percent sign
 
-A `%` not followed by `P`, `N`, or `T` is kept verbatim in the filename.
+A `%` not followed by `P`, `N`, `T`, or `%` is kept verbatim in the filename.
 
 Examples:
 ```
