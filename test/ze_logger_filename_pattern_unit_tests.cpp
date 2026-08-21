@@ -60,7 +60,7 @@ TEST(ZeLoggerSanitizeFileNameComponent, GivenEmptyThenReturnsProcessPlaceholder)
     EXPECT_EQ(std::string("process"), loader::sanitizeFileNameComponent(""));
 }
 
-TEST(ZeLoggerSanitizeFileNameComponent, GivenPlainNameThenReturnedUnchanged) {
+TEST(ZeLoggerSanitizeFileNameComponent, GivenPlainNameThenReturnsUnchanged) {
     EXPECT_EQ(std::string("app_name-1.2"), loader::sanitizeFileNameComponent("app_name-1.2"));
 }
 
@@ -78,7 +78,7 @@ TEST(ZeLoggerSanitizeFileNameComponent, GivenControlCharacterThenReplacedWithUnd
 // expandLogFilePattern
 // -----------------------------------------------------------------------------
 
-TEST(ZeLoggerExpandLogFilePattern, GivenNoTokenThenReturnedUnchanged) {
+TEST(ZeLoggerExpandLogFilePattern, GivenNoTokenThenReturnsUnchanged) {
     EXPECT_EQ(std::string("ze_loader.log"), loader::expandLogFilePattern("ze_loader.log"));
 }
 

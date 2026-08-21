@@ -141,12 +141,16 @@ std::string expandLogFilePattern(const std::string &pattern) {
         return pattern;
     }
 
-    const std::string pid = std::to_string(static_cast<long long>(GET_PID()));
-    const std::string process_name = currentProcessName();
-    const std::string timestamp = startupTimestampForFileName();
+    // The token values are process-invariant, so compute them once (thread-safe
+    // function-local statics) rather than issuing the pid/exe-path/time syscalls
+    // on every call. Caching also gives %T a stable "logger startup" timestamp
+    // across expansions instead of drifting between calls.
+    static const std::string pid = std::to_string(static_cast<long long>(GET_PID()));
+    static const std::string process_name = currentProcessName();
+    static const std::string timestamp = startupTimestampForFileName();
 
     std::string expanded;
-    expanded.reserve(pattern.size() + pid.size() + process_name.size());
+    expanded.reserve(pattern.size() + pid.size() + process_name.size() + timestamp.size());
 
     for (std::size_t i = 0; i < pattern.size(); ++i) {
         if (pattern[i] == '%' && i + 1 < pattern.size()) {
