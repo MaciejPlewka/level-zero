@@ -10,7 +10,6 @@
 #include "ze_util.h"
 
 #include <cerrno>
-#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
