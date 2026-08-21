@@ -140,13 +140,13 @@ std::string expandLogFilePattern(const std::string &pattern) {
         return pattern;
     }
 
-    // The token values are process-invariant, so compute them once (thread-safe
-    // function-local statics) rather than issuing the pid/exe-path/time syscalls
-    // on every call. Caching also gives %T a stable "logger startup" timestamp
-    // across expansions instead of drifting between calls.
-    static const std::string pid = std::to_string(static_cast<long long>(GET_PID()));
-    static const std::string process_name = currentProcessName();
-    static const std::string timestamp = startupTimestampForFileName();
+    // Compute the token values per call. This is not a hot path -- createLogger()
+    // resolves the filename once per process at logger creation -- and computing
+    // the pid here (rather than caching it) keeps %P correct after fork(): a
+    // cached static would otherwise expand to the parent's pid in the child.
+    const std::string pid = std::to_string(static_cast<long long>(GET_PID()));
+    const std::string process_name = currentProcessName();
+    const std::string timestamp = startupTimestampForFileName();
 
     std::string expanded;
     expanded.reserve(pattern.size() + pid.size() + process_name.size() + timestamp.size());
@@ -686,19 +686,11 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
     if (loader_file.empty()) {
         loader_file = LOADER_LOG_FILE;
     }
-
-    // Expand filename pattern tokens (%P, %N, %T, %%) within ZEL_LOADER_LOG_FILE.
-    // A filename without tokens is returned unchanged, preserving existing behaviour.
-    std::string resolved_loader_file = expandLogFilePattern(loader_file);
-    if (resolved_loader_file.empty()) {
-        resolved_loader_file = loader_file;
-    }
-
-#ifdef _WIN32
-    std::string full_log_file_path = log_directory + "\\" + resolved_loader_file;
-#else
-    std::string full_log_file_path = log_directory + "/" + resolved_loader_file;
-#endif
+    // ZEL_LOADER_LOG_FILE pattern tokens (%P, %N, %T, %%) are expanded lazily,
+    // only when a file sink is actually created (see below), so the no-op and
+    // console paths never pay for the pid/exe-path/time lookups. A filename
+    // without tokens is used unchanged, preserving existing behaviour.
+    std::string resolved_loader_file;
 
     const uint32_t logging_mode = getenv_tomode("ZEL_ENABLE_LOADER_LOGGING");
     const bool logging_enabled = (logging_mode != 0);
@@ -786,6 +778,17 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
             }
         }
 #endif
+        // Resolve the %P/%N/%T/%% tokens now that a file sink is definitely used.
+        resolved_loader_file = expandLogFilePattern(loader_file);
+        if (resolved_loader_file.empty()) {
+            resolved_loader_file = loader_file;
+        }
+#ifdef _WIN32
+        std::string full_log_file_path = log_directory + "\\" + resolved_loader_file;
+#else
+        std::string full_log_file_path = log_directory + "/" + resolved_loader_file;
+#endif
+
         logger = std::shared_ptr<ZeLogger>(new ZeLogger(full_log_file_path, level, log_pattern));
         output_dest = full_log_file_path;
     }
@@ -798,7 +801,9 @@ std::shared_ptr<ZeLogger> createLogger(const std::string &caller) {
         cfg += "\n  ZEL_LOADER_LOGGING_LEVEL         : " + log_level;
         cfg += "\n  ZEL_LOADER_LOG_DIR               : " + log_directory;
         cfg += "\n  ZEL_LOADER_LOG_FILE              : " + loader_file;
-        cfg += "\n  Resolved log filename            : " + resolved_loader_file;
+        if (!log_console) {
+            cfg += "\n  Resolved log filename            : " + resolved_loader_file;
+        }
         cfg += "\n  ZEL_LOADER_LOG_PATTERN           : " + log_pattern;
         cfg += "\n  Output                           : " + output_dest;
         logger->info(cfg);
